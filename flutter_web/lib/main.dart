@@ -106,7 +106,44 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
+  bool _menuOpen = false;
   final PageController _pageController = PageController();
+
+  // Opens the navigation bottom-sheet. Hides the footer while the sheet is
+  // visible — same behavior as flutterWebsite.
+  //
+  // IMPORTANT: showMenu() must be called BEFORE setState so that
+  // showModalBottomSheet receives the original, unmodified context.  On
+  // Flutter Web, marking the tree dirty before pushing the route can silently
+  // drop the sheet.
+  void _openMenu(BuildContext ctx) {
+    final future = NavBar.showMenu(
+      ctx,
+      currentIndex: _currentIndex,
+      onItemSelected: (index) {
+        if (!mounted) return;
+        setState(() {
+          _currentIndex = index;
+          _menuOpen = false;
+        });
+        _pageController.animateToPage(
+          index,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      },
+    );
+    // Hide footer now that the route is safely on the Navigator stack.
+    if (mounted) setState(() => _menuOpen = true);
+    future.then(
+      (_) {
+        if (mounted) setState(() => _menuOpen = false);
+      },
+      onError: (_) {
+        if (mounted) setState(() => _menuOpen = false);
+      },
+    );
+  }
 
   // Build screens here so we can pass navigation callbacks to HomeScreen
   List<Widget> get _screens => [
@@ -131,37 +168,50 @@ class _MainLayoutState extends State<MainLayout> {
     'Our Services',
     'Locations',
     'Blog & Insights',
-    'Contact Us'
+    'Contact Us',
   ];
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // Wrapping in Builder gives us `shellCtx` — a context that is below the
+    // MaterialApp (and therefore has a valid Navigator/Overlay ancestor) but
+    // is NOT inside the AppBar widget tree.  Calling showModalBottomSheet from
+    // an AppBar-internal context silently does nothing on Flutter web; using
+    // shellCtx here fixes that.
+    return Builder(
+      builder: (shellCtx) => Scaffold(
         appBar: AppBar(
-        title: Text(
-          _appBarTitles[_currentIndex],
-          style: GoogleFonts.poppins(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: AppColors.primary,
+          leading: IconButton(
+            tooltip: 'Menu',
+            icon: const Icon(Icons.menu, color: AppColors.primary),
+            onPressed: () => _openMenu(shellCtx),
           ),
-        ),
-        actions: [
-          NavBar(
+          title: Text(
+            _appBarTitles[_currentIndex],
+            style: GoogleFonts.poppins(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+          ),
+          actions: [
+            NavBar(
+              currentIndex: _currentIndex,
               onItemSelected: (index) {
-            setState(() {
-              _currentIndex = index;
-              _pageController.animateToPage(
-                index,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-              );
-            });
+                setState(() {
+                  _currentIndex = index;
+                  _pageController.animateToPage(
+                    index,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                });
               },
               onLocaleChanged: widget.onLocaleChanged,
-              currentLocale: widget.currentLocale.languageCode),
-        ],
-      ),
+              currentLocale: widget.currentLocale.languageCode,
+            ),
+          ],
+        ),
       body: PageView(
         controller: _pageController,
         onPageChanged: (index) {
@@ -171,45 +221,31 @@ class _MainLayoutState extends State<MainLayout> {
         },
         children: _screens,
       ),
-      bottomNavigationBar: Footer(
-        currentIndex: _currentIndex,
-        isCompact: true,
-        onTabTapped: (index) {
-          setState(() {
-            _currentIndex = index;
-            _pageController.animateToPage(
-              index,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
-          });
-        },
-      ),
+      // Footer is hidden while the menu sheet is open (matches flutterWebsite
+      // behavior where the footer is not visible during navigation).
+      bottomNavigationBar: _menuOpen
+          ? null
+          : Footer(
+              currentIndex: _currentIndex,
+              isCompact: true,
+              onTabTapped: (index) {
+                setState(() {
+                  _currentIndex = index;
+                  _pageController.animateToPage(
+                    index,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                });
+              },
+            ),
       floatingActionButton: FloatingActionButton(
-        tooltip: 'Navigate',
-        onPressed: () {},
-        child: PopupMenuButton<int>(
-          icon: const Icon(Icons.menu),
-          onSelected: (index) {
-            setState(() {
-              _currentIndex = index;
-              _pageController.animateToPage(
-                index,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-              );
-            });
-          },
-          itemBuilder: (context) {
-            return List.generate(_appBarTitles.length, (i) {
-              return PopupMenuItem<int>(
-                value: i,
-                child: Text(_appBarTitles[i]),
-              );
-            });
-          },
-        ),
+        tooltip: 'Quick Navigate',
+        backgroundColor: AppColors.primary,
+        onPressed: () => _openMenu(shellCtx),
+        child: const Icon(Icons.apps, color: Colors.white),
       ),
+    ),
     );
   }
 }
